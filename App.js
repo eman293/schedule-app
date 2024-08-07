@@ -1,231 +1,270 @@
+import { StatusBar } from 'expo-status-bar';
+import { FlatList, StyleSheet, Text, View, Pressable, Alert, TextInput, ActivityIndicator } from 'react-native';
+import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
+import { useState, useEffect } from 'react';
+import { AntDesign } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Modal, Pressable } from 'react-native';
-import { SQLiteProvider } from 'expo-sqlite';
 
-// Function to initialize the database
+// Initialize the database
 async function initializeDatabase(db) {
-  try {
-    await db.execAsync(
-      `PRAGMA journal_mode = WAL; 
-      CREATE TABLE IF NOT EXISTS events 
-      (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-      event TEXT NOT NULL, 
-      date TEXT NOT NULL);`
-    );
-    console.log('Database initialised');
-    const everything = db.getAllAsync(`SELECT * from events`);
-    console.log('Database received');
-    console.log(everything);
-  } catch (error) {
-    console.log('Error while initializing database : ', error);
-  }
+    try {
+        await db.execAsync(`
+            PRAGMA journal_mode = WAL;
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description TEXT,
+                time TEXT
+            );
+        `);
+        console.log('Database initialized');
+        const everything = await db.getAllAsync('SELECT * FROM events');
+        console.log('data:');
+        console.log(everything);
+    } catch (error) {
+        console.log('Error while initializing database: ', error);
+    }
 }
 
-// Function to add an event
-function addEvent(eventText, eventTime, events, setEvents, setEventText, setEventTime, setModalVisible) {
-  if (eventText.trim() === '' || eventTime.trim() === '') {
-    Alert.alert('Error', 'Please enter both text and time for the event.');
-    return;
-  }
-  setEvents([...events, { text: eventText, time: eventTime }]);
-  setEventText('');
-  setEventTime('');
-  setModalVisible(false);
-}
+// EventButton component
+const EventButton = ({ event, deleteEvent }) => {
+    const handleDelete = () => {
+        Alert.alert(
+            'Attention!',
+            'Are you sure you want to delete this event?',
+            [
+                { text: 'No', onPress: () => { }, style: 'cancel' },
+                { text: 'Yes', onPress: () => deleteEvent(event.id) },
+            ],
+            { cancelable: true }
+        );
+    };
 
-// Function to delete an event
-function deleteEvent(index, events, setEvents) {
-  Alert.alert(
-    'Delete Event',
-    'Are you sure you want to delete this event?',
-    [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'OK',
-        onPress: () => {
-          const newEvents = events.filter((_, i) => i !== index);
-          setEvents(newEvents);
-        },
-      },
-    ]
-  );
-}
-
-// Component for rendering individual events
-function EventItem({ item, index, onDelete }) {
-  return (
-    <View style={styles.eventContainer}>
-      <Text style={styles.eventText}>{item.time} - {item.text}</Text>
-      <TouchableOpacity
-        style={styles.deleteButton}
-        onPress={() => onDelete(index)}
-      >
-        <Text style={styles.deleteButtonText}>Delete</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-// Component for the modal used to add events
-function EventModal({ visible, onClose, eventText, setEventText, eventTime, setEventTime, onAdd }) {
-  return (
-    <Modal
-      transparent={true}
-      visible={visible}
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <View style={styles.modalContainer}>
-          <TextInput
-            style={styles.modalInput}
-            placeholder="Event Description"
-            placeholderTextColor="#888"
-            value={eventText}
-            onChangeText={setEventText}
-          />
-          <TextInput
-            style={styles.modalInput}
-            placeholder="Event Time (e.g., 12:00 PM)"
-            placeholderTextColor="#888"
-            value={eventTime}
-            onChangeText={setEventTime}
-          />
-          <TouchableOpacity
-            style={styles.modalAddButton}
-            onPress={onAdd}
-          >
-            <Text style={styles.modalAddButtonText}>Add Event</Text>
-          </TouchableOpacity>
+    return (
+        <View style={styles.eventButton}>
+            <Text style={styles.eventText}>{event.description}</Text>
+            <Text style={styles.eventTime}>{event.time}</Text>
+            <AntDesign
+                name='delete'
+                size={18}
+                color='red'
+                onPress={handleDelete}
+                style={styles.icon}
+            />
         </View>
-      </Pressable>
-    </Modal>
-  );
+    );
+};
+
+// EventForm component
+const EventForm = ({ event, setEvent, onSave, setShowForm }) => {
+    return (
+        <View style={styles.formContainer}>
+            <TextInput
+                style={styles.input}
+                placeholder='Event description'
+                value={event.description}
+                onChangeText={(text) => setEvent({ ...event, description: text })}
+            />
+            <TextInput
+                style={styles.input}
+                placeholder='Event time (e.g., 3:00 PM)'
+                value={event.time}
+                onChangeText={(text) => setEvent({ ...event, time: text })}
+            />
+
+            <Pressable
+                onPress={onSave}
+                style={styles.saveButton}
+            >
+                <Text style={styles.buttonText}>Save</Text>
+            </Pressable>
+            <Pressable
+                onPress={() => setShowForm(false)}
+                style={styles.cancelButton}
+            >
+                <Text style={styles.buttonText}>Cancel</Text>
+            </Pressable>
+        </View>
+    );
+};
+
+export default function App() {
+    return (
+        <SQLiteProvider databaseName='example.db' onInit={initializeDatabase}>
+            <LinearGradient
+                colors={['#d5edff', '#004a82']} // Red to purple gradient
+                style={styles.gradient}
+            >
+                <View style={styles.container}>
+                    <Text style={styles.title}>Schedule For Today</Text>
+                    <Content />
+                    <StatusBar style="auto" />
+                </View>
+            </LinearGradient>
+        </SQLiteProvider>
+    );
 }
 
-// Main App component
-export default function App() {
-  const [modalVisible, setModalVisible] = useState(false);
-  const [eventText, setEventText] = useState('');
-  const [eventTime, setEventTime] = useState('');
-  const [events, setEvents] = useState([]);
+const Content = () => {
+    const db = useSQLiteContext();
+    const [events, setEvents] = useState([]);
+    const [showForm, setShowForm] = useState(false);
+    const [event, setEvent] = useState({ id: 0, description: '', time: '' });
+    const [loading, setLoading] = useState(true);
 
-  return (
-    <SQLiteProvider databaseName='events.db' onInit={initializeDatabase}>
-      <LinearGradient
-        colors={['#FF0000', '#800080']}
-        style={styles.container}
-      >
-        <FlatList
-          data={events}
-          renderItem={({ item, index }) => (
-            <EventItem item={item} index={index} onDelete={(index) => deleteEvent(index, events, setEvents)} />
+    const handleSave = () => {
+        if (event.description.length === 0 || event.time.length === 0) {
+            Alert.alert('Attention', 'Please enter all the data!');
+        } else {
+            addEvent(event);
+            setEvent({ id: 0, description: '', time: '' });
+            setShowForm(false);
+        }
+    };
+
+    const getEvents = async () => {
+        try {
+            const allRows = await db.getAllAsync('SELECT * FROM events');
+            setEvents(allRows);
+        } catch (error) {
+            console.log('Error while loading events: ', error);
+        } finally {
+            // Delay setting loading to false for at least 3 seconds
+            setTimeout(() => setLoading(false), 3000);
+        }
+    };
+
+    const addEvent = async (newEvent) => {
+        try {
+            const statement = await db.prepareAsync('INSERT INTO events (description, time) VALUES (?,?)');
+            await statement.executeAsync([newEvent.description, newEvent.time]);
+            await getEvents();
+        } catch (error) {
+            console.log('Error while adding event: ', error);
+        }
+    };
+
+    const deleteEvent = async (id) => {
+        try {
+            await db.runAsync('DELETE FROM events WHERE id = ?', [id]);
+            await getEvents();
+        } catch (error) {
+            console.log('Error while deleting the event: ', error);
+        }
+    };
+
+    useEffect(() => {
+        getEvents();
+    }, []);
+
+    if (loading) {
+        return (
+              <ActivityIndicator size="large" color="#ffffff" />
+        );
+    }
+
+    return (
+        <View style={styles.contentContainer}>
+          <FlatList
+              data={events}
+              renderItem={({ item }) => (
+                  <EventButton event={item} deleteEvent={deleteEvent} />
+              )}
+              keyExtractor={(item) => item.id.toString()}
+          />
+          {showForm && (
+              <EventForm event={event} setEvent={setEvent} onSave={handleSave} setShowForm={setShowForm} />
           )}
-          keyExtractor={(item, index) => index.toString()}
-        />
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setModalVisible(true)}
-        >
-          <Text style={styles.addButtonText}>+</Text>
-        </TouchableOpacity>
-
-        {/* Modal for Adding Events */}
-        <EventModal
-          visible={modalVisible}
-          onClose={() => setModalVisible(false)}
-          eventText={eventText}
-          setEventText={setEventText}
-          eventTime={eventTime}
-          setEventTime={setEventTime}
-          onAdd={() => addEvent(eventText, eventTime, events, setEvents, setEventText, setEventTime, setModalVisible)}
-        />
-      </LinearGradient>
-    </SQLiteProvider>
-  );
+          <Pressable
+              onPress={() => setShowForm(true)}
+              style={styles.addButton}
+          >
+              <AntDesign
+                  name='pluscircleo'
+                  size={36} // Larger size
+                  color='white'
+              />
+            </Pressable>
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
-  centerIt: {
-    alignItems: 'center',
-    paddingTop: 325,
-  },
-  container: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'flex-start',
-  },
-  eventContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 10,
-    marginVertical: 5,
-    borderRadius: 5,
-  },
-  eventText: {
-    color: '#000',
-    fontSize: 16,
-  },
-  deleteButton: {
-    backgroundColor: '#f00',
-    padding: 5,
-    borderRadius: 5,
-  },
-  deleteButtonText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    backgroundColor: '#000',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 30,
-    fontWeight: 'bold',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  modalContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-    width: '80%',
-    alignItems: 'center',
-  },
-  modalInput: {
-    height: 40,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    color: '#000',
-    width: '100%',
-    marginBottom: 10,
-  },
-  modalAddButton: {
-    backgroundColor: '#000',
-    padding: 10,
-    borderRadius: 5,
-    alignItems: 'center',
-    width: '100%',
-  },
-  modalAddButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
+    gradient: {
+        flex: 1,
+    },
+    container: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: '100%',
+        padding: 20,
+    },
+    title: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#000',
+        marginBottom: 20,
+    },
+    contentContainer: {
+        flex: 1,
+        width: '100%',
+        justifyContent: 'center',
+    },
+    eventButton: {
+        backgroundColor: 'white',
+        padding: 10,
+        marginVertical: 5,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    eventText: {
+        fontSize: 18,
+    },
+    eventTime: {
+        fontSize: 16,
+        color: 'gray',
+    },
+    icon: {
+        marginLeft: 10,
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        padding: 8,
+        marginVertical: 5,
+        backgroundColor: 'white',
+    },
+    saveButton: {
+        backgroundColor: 'blue',
+        padding: 10,
+        marginVertical: 5,
+    },
+    buttonText: {
+        color: 'white',
+        textAlign: 'center',
+    },
+    cancelButton: {
+        backgroundColor: 'grey',
+        padding: 10,
+        marginVertical: 5,
+    },
+    formContainer: {
+        backgroundColor: 'rgba(255, 255, 255, 0.9)', // Semi-transparent white
+        padding: 20,
+        borderRadius: 10,
+    },
+    addButton: {
+        position: 'absolute',
+        bottom: 20,
+        right: 20,
+        backgroundColor: 'rgba(0, 0, 0, 0.3)', // Semi-transparent background
+        borderRadius: 50,
+        padding: 10,
+    },
+    loadingScreen: {
+        flex: 100,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
 });
