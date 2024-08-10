@@ -1,10 +1,10 @@
 import { StatusBar } from 'expo-status-bar';
-import { FlatList, StyleSheet, Text, View, Pressable, Alert, TextInput, ActivityIndicator, ScrollView } from 'react-native';
+import { FlatList, StyleSheet, Text, View, Pressable, Alert, TextInput } from 'react-native';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { useState, useEffect } from 'react';
 import { AntDesign } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import { DateTimePickerModal } from 'react-native-modal-datetime-picker';
 
 // Initialize the database
 async function initializeDatabase(db) {
@@ -56,9 +56,9 @@ const EventButton = ({ event, deleteEvent }) => {
 
     return (
         <View style={styles.eventButton}>
-            <ScrollView style={styles.descriptionContainer}>
+            <View style={styles.descriptionContainer}>
                 <Text style={[styles.eventText, { fontSize }]}>{event.description}</Text>
-            </ScrollView>
+            </View>
             <Text style={styles.eventTime}>{formatTime(event.time)}</Text>
             <AntDesign
                 name='delete'
@@ -127,64 +127,48 @@ const EventForm = ({ event, setEvent, onSave, setShowForm }) => {
     );
 };
 
-export default function App() {
-    return (
-        <SQLiteProvider databaseName='example.db' onInit={initializeDatabase}>
-            <LinearGradient
-                colors={['#d5edff', '#004a82']}
-                style={styles.gradient}
-            >
-                <View style={styles.container}>
-                    <Text style={styles.title}>Schedule For Today</Text>
-                    <Text style={styles.title}> {
-                    Date().toLocaleString().substring(Date().toLocaleString().indexOf(' ') + 1, Date().toLocaleString().indexOf(' ') + 12)
-                    } </Text>
-                    <Content />
-                    <StatusBar style="auto" />
-                </View>
-            </LinearGradient>
-        </SQLiteProvider>
-    );
-}
-
-const Content = () => {
+// Content Component
+const Content = ({ selectedDate, setSelectedDate }) => {
     const db = useSQLiteContext();
     const [events, setEvents] = useState([]);
     const [showForm, setShowForm] = useState(false);
-    const [event, setEvent] = useState({ id: 0, description: '', time: '' });
-    const [loading, setLoading] = useState(true);
+    const [event, setEvent] = useState({ id: 0, description: '', time: '', year: '', month: '', day: '' });
+    const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
 
     const handleSave = () => {
         if (event.description.length === 0 || event.time.length === 0) {
             Alert.alert('Attention', 'Please enter all the data!');
         } else {
             addEvent(event);
-            setEvent({ id: 0, description: '', time: '' });
+            setEvent({ id: 0, description: '', time: '', year: '', month: '', day: '' });
             setShowForm(false);
         }
     };
 
     const getEvents = async () => {
         try {
-            const allRows = await db.getAllAsync('SELECT * FROM events');
+            const year = selectedDate.getFullYear().toString();
+            const month = (selectedDate.getMonth() + 1).toString().padStart(2, '0'); // Months are 0-based
+            const day = selectedDate.getDate().toString().padStart(2, '0');
+            const allRows = await db.getAllAsync('SELECT * FROM events WHERE year = ? AND month = ? AND day = ?', [year, month, day]);
             setEvents(allRows);
         } catch (error) {
             console.log('Error while loading events: ', error);
-        } finally {
-            // Delay setting loading to false for at least 3 seconds
-            setTimeout(() => setLoading(false), 3000);
         }
     };
 
     const addEvent = async (newEvent) => {
         try {
             const statement = await db.prepareAsync('INSERT INTO events (description, time, year, month, day) VALUES (?,?,?,?,?)');
-            const date = Date().toLocaleString();
-            await statement.executeAsync([newEvent.description, newEvent.time, 
-              date.substring(date.indexOf(' ') + 8, date.indexOf(' ') + 12), //year
-              date.substring(date.indexOf(' ') + 1, date.indexOf(' ') + 5), //month
-              date.substring(date.indexOf(' ') + 5, date.indexOf(' ') + 7)]); //day
-            await getEvents();
+            const date = selectedDate;
+            await statement.executeAsync([
+                newEvent.description,
+                newEvent.time,
+                date.getFullYear().toString(), // year
+                (date.getMonth() + 1).toString().padStart(2, '0'), // month
+                date.getDate().toString().padStart(2, '0') // day
+            ]);
+            await getEvents(); // Refresh events after adding a new one
         } catch (error) {
             console.log('Error while adding event: ', error);
         }
@@ -193,21 +177,20 @@ const Content = () => {
     const deleteEvent = async (id) => {
         try {
             await db.runAsync('DELETE FROM events WHERE id = ?', [id]);
-            await getEvents();
+            await getEvents(); // Refresh events after deletion
         } catch (error) {
             console.log('Error while deleting the event: ', error);
         }
     };
 
+    const handleDateConfirm = (date) => {
+        setSelectedDate(date);
+        setDatePickerVisibility(false);
+    };
+
     useEffect(() => {
         getEvents();
-    }, []);
-
-    if (loading) {
-        return (
-            <ActivityIndicator size="large" color="#ffffff" />
-        );
-    }
+    }, [selectedDate]);
 
     return (
         <View style={styles.contentContainer}>
@@ -231,7 +214,39 @@ const Content = () => {
                     color='white'
                 />
             </Pressable>
+            <Pressable
+                onPress={() => setDatePickerVisibility(true)}
+                style={styles.dateButton}
+            >
+                <Text style={styles.dateButtonText}>Change Date</Text>
+            </Pressable>
+            <DateTimePickerModal
+                isVisible={isDatePickerVisible}
+                mode="date"
+                onConfirm={handleDateConfirm}
+                onCancel={() => setDatePickerVisibility(false)}
+            />
         </View>
+    );
+};
+
+// Main App Component
+export default function App() {
+    const [selectedDate, setSelectedDate] = useState(new Date());
+
+    return (
+        <SQLiteProvider databaseName='example.db' onInit={initializeDatabase}>
+            <LinearGradient
+                colors={['#d5edff', '#004a82']}
+                style={styles.gradient}
+            >
+                <View style={styles.container}>
+                    <Text style={styles.title}>Schedule For {selectedDate.toLocaleDateString()}</Text>
+                    <Content selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+                    <StatusBar style="auto" />
+                </View>
+            </LinearGradient>
+        </SQLiteProvider>
     );
 }
 
@@ -328,9 +343,18 @@ const styles = StyleSheet.create({
         borderRadius: 50,
         padding: 10,
     },
-    loadingScreen: {
-        flex: 100,
-        justifyContent: 'center',
-        alignItems: 'center',
+    dateButton: {
+        position: 'absolute',
+        bottom: 20,
+        left: 20,
+        backgroundColor: 'rgba(0, 0, 0, 0.3)', // Semi-transparent background
+        borderRadius: 50,
+        padding: 10,
+    },
+    dateButtonText: {
+        color: 'white',
+        fontSize: 18,
     },
 });
+
+//adb logcat
